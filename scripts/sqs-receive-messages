@@ -1,0 +1,24 @@
+#!/usr/bin/env python
+
+import os, sys
+from twisted.internet import reactor
+from polarrose.amazon.sqs import SimpleQueueService, SimpleQueue
+
+if __name__ == "__main__":
+
+    def printResult(response):
+        if response.isSuccess():
+            for message in response.messages:
+                print message
+        else:
+            print response
+        reactor.stop()
+
+    def printError(failure):
+        print "failure: " + str(failure)
+        reactor.stop()
+
+    service = SimpleQueueService(key = os.environ.get("AWS_KEY"), secret = os.environ.get("AWS_SECRET"))
+    service.receiveMessages(SimpleQueue(sys.argv[1])).addCallback(printResult).addErrback(printError)
+    reactor.run()
+    

@@ -1,0 +1,34 @@
+#!/usr/bin/env python
+
+import os, sys
+from twisted.internet import reactor
+
+from polarrose.amazon.sdb import SimpleDatabaseService
+
+if __name__ == "__main__":
+
+    from twisted.internet import reactor
+
+    def printResult(response):
+        if response.success:
+            for item in response.items:
+                print item
+        else:
+            print "The request failed with the following errors:"
+            for code,message in response.errors.iteritems():
+                print " %s - %s" % (code, message)            
+        print "(RequestId = %s BoxUsage = %s)" % (response.requestId, response.boxUsage)
+        reactor.stop()
+
+    def printError(failure):
+        print str(failure)
+        reactor.stop()
+
+    limit = 10
+    if len(sys.argv) == 4:
+        limit = int(sys.argv[3])
+ 
+    service = SimpleDatabaseService(key = os.environ.get("AWS_KEY"), secret = os.environ.get("AWS_SECRET"))
+    service.query(sys.argv[1], sys.argv[2], limit).addCallback(printResult).addErrback(printError)
+    reactor.run()
+    
