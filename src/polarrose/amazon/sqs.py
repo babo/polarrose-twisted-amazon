@@ -1,5 +1,5 @@
 #
-# Copyright 2007 Polar Rose <http://www.polarrose.com> and Stefan
+# Copyright 2007-2008 Polar Rose <http://www.polarrose.com> and Stefan
 #  Arentz <stefan@arentz.nl>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
