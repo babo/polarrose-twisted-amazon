@@ -24,7 +24,7 @@ if __name__ == "__main__":
         print str(failure)
         reactor.stop()
 
-    limit = 10
+    limit = 100
     if len(sys.argv) == 4:
         limit = int(sys.argv[3])
  

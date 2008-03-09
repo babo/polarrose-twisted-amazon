@@ -8,14 +8,17 @@ from twisted.web import client
 from twisted.internet import defer, task
 from twisted.internet import reactor
 
-from polarrose.amazon.sdb import SimpleDatabaseService
+from polarrose.amazon.sdb import SimpleDatabaseService,Item
 
 if __name__ == "__main__":
 
     def printResult(response):
         if response.success:
-            for i in response.items:
-                print "%s: %s" % (i.name,i.attributes)
+            for name,item in response.items.iteritems():
+                if type(item) == Item:
+                    print "%s: %s" % (name,item.attributes)
+                else:
+                    print "%s: %s" % (name,str(item))
         else:
             print "The request failed with the following errors:"
             for code,message in response.errors.iteritems():

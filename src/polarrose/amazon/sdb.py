@@ -109,14 +109,19 @@ class QueryResponse(BaseResponse):
         r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResult")
         for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}ItemName"):
             self.items.append(e.text)
+        self.nextToken = tree.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResult/{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
     def __repr__(self):
-        return '<QueryResponse requestId: "%s" items: %s>' % (self.requestId, self.items)
+        return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
 
-class FetchResponse(BaseResponse):
-    def __init__(self, items):
-        self.requestId = None
+class FetchResponse(object):
+    def __init__(self, queryResponse):
         self.success = True
-        self.items = items
+        self.requestId = queryResponse.requestId
+        self.boxUsage = queryResponse.boxUsage
+        self.nextToken = queryResponse.nextToken
+        self.items = {}
+    def __repr__(self):
+        return '<FetchResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
 
 RESPONSE_OBJECTS = {
     '{http://sdb.amazonaws.com/doc/2007-11-07/}CreateDomainResponse': CreateDomainResponse,
@@ -193,51 +198,61 @@ class SimpleDatabaseService(object):
     
     #
 
-    def query(self, domainName, queryExpression = None, maxNumberOfItems = 100):
-        url = self._createRequestUrl("Query", {'DomainName': domainName, 'QueryExpression': queryExpression,
-           'MaxNumberOfItems': maxNumberOfItems})
+    def query(self, domainName, queryExpression = None, maxNumberOfItems = 100, nextToken = None):
+        parameters = {'DomainName': domainName, 'QueryExpression': queryExpression,
+                      'MaxNumberOfItems': maxNumberOfItems}
+        if nextToken:
+            parameters['NextToken'] = nextToken
+        url = self._createRequestUrl("Query", parameters)
         if self.debug:
             self.logger.debug(url)
         return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
 
     #
 
-    def _fetchCollectorCallback(self, responses, itemNames):
-        return FetchResponse([Item(*t) for t in zip(itemNames, [t[1].attributes for t in responses])])
+    def _fetchCollectorCallback(self, responses, itemNames, fetchResponse):
+        for itemName, item in zip(itemNames, responses):
+            if item[0]:
+                fetchResponse.items[itemName] = Item(itemName, item[1])
+            else:
+                fetchResponse.items[itemName] = item[1]
+        return fetchResponse
 
     def _fetchQueryCallback(self, response, domainName, attributes):
         if not response.success:
             return response
-        getters = [self.getAttributes(domainName, item, attributes) for item in response.items]
-        return defer.DeferredList(getters, consumeErrors = False).addCallback(self._fetchCollectorCallback, response.items)
+        deferred = defer.DeferredList([self.getAttributes(domainName, item, attributes) for item in response.items],
+            consumeErrors = True)
+        return deferred.addCallback(self._fetchCollectorCallback, response.items, FetchResponse(response))
 
-    def fetch(self, domainName, expression, attributes = [], maxNumberOfItems = 100):
-        return self.query(domainName, expression, maxNumberOfItems).addCallback(self._fetchQueryCallback, domainName, attributes)
+    def fetch(self, domainName, expression = "", attributes = [], maxNumberOfItems = 100, nextToken = None):
+        deferred = self.query(domainName, expression, maxNumberOfItems, nextToken)
+        return deferred.addCallback(self._fetchQueryCallback, domainName, attributes)
 
     #
 
-    def _executeParallelTasks(self, iterable, count, callable, *args, **named):
-        coop = task.Cooperator()
-        work = (callable(elem, *args, **named) for elem in iterable)
-        return defer.DeferredList([coop.coiterate(work) for i in xrange(count)])
-
-    def _handleFetchItem(self, response, responses):
-        responses.append(response)
-        return response
-
-    def _fetchItem(self, (itemName), domainName, responses):
-        return self.getAttributes(domainName, itemName).addCallback(self._handleFetchItem, responses)
-
-    def _handleExecuteParallelFetchItems(self, response, responses):
-        return responses
-
-    def _handleQuerySuccess(self, response, count, domainName, responses):
-        deferred = self._executeParallelTasks(response.items, count, self._fetchItem, domainName, responses)
-        return deferred.addCallback(self._handleExecuteParallelFetchItems, responses)
-
-    def parallelFetch(self, domainName, expression, attributes = [], maxNumberOfItems = 100, count = 2):
-        deferred = self.query(domainName, expression, maxNumberOfItems)
-        return deferred.addCallback(self._handleQuerySuccess, count, domainName, [])
+#    def _executeParallelTasks(self, iterable, count, callable, *args, **named):
+#        coop = task.Cooperator()
+#        work = (callable(elem, *args, **named) for elem in iterable)
+#        return defer.DeferredList([coop.coiterate(work) for i in xrange(count)])
+#
+#    def _handleFetchItem(self, response, responses):
+#        responses.append(response)
+#        return response
+#
+#    def _fetchItem(self, (itemName), domainName, responses):
+#        return self.getAttributes(domainName, itemName).addCallback(self._handleFetchItem, responses)
+#
+#    def _handleExecuteParallelFetchItems(self, response, responses):
+#        return responses
+#
+#    def _handleQuerySuccess(self, response, count, domainName, responses):
+#        deferred = self._executeParallelTasks(response.items, count, self._fetchItem, domainName, responses)
+#        return deferred.addCallback(self._handleExecuteParallelFetchItems, responses)
+#
+#    def parallelFetch(self, domainName, expression, attributes = [], maxNumberOfItems = 100, count = 2):
+#        deferred = self.query(domainName, expression, maxNumberOfItems)
+#        return deferred.addCallback(self._handleQuerySuccess, count, domainName, [])
 
     #
 
