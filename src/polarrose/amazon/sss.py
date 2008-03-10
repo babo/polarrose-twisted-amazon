@@ -15,6 +15,10 @@
 # limitation under the License.
 #
 
+#
+# XXX THIS IS ALL PRETTY BAD - NEEDS SOME SERIOUS CLEANUP XXX
+#
+
 from datetime import datetime
 from time import gmtime, strftime
 import base64, hmac, sha, md5, urllib
@@ -22,7 +26,7 @@ from xml.etree import ElementTree
 
 from twisted.web import client
 
-class Response(object):
+class SuccessResponse(object):
     
     success = True
     requestId = None
@@ -103,7 +107,7 @@ class SimpleStorageService(object):
     S3_VERSION = "2006-03-01"
     S3_PROTOCOL = "http"
     S3_ENDPOINT = "s3.amazonaws.com"
-    S3_ACCEPTABLE_ERRORS = [400, 409]
+    S3_ACCEPTABLE_ERRORS = [400, 403, 404, 409]
     S3_IGNORE_ERRORS = [204]
 
     def __init__(self, key = None, secret = None):
@@ -117,7 +121,7 @@ class SimpleStorageService(object):
                 tree = ElementTree.fromstring(response)
                 if RESPONSE_OBJECTS.has_key(tree.tag):
                     return RESPONSE_OBJECTS[tree.tag](tree)
-            return SuccessResponse()
+            return SuccessResponse(None)
 
         def failure(failure):
             if int(failure.value.status) in self.S3_IGNORE_ERRORS:
@@ -142,7 +146,7 @@ class SimpleStorageService(object):
                 tree = ElementTree.fromstring(response)
                 if RESPONSE_OBJECTS.has_key(tree.tag):
                     return RESPONSE_OBJECTS[tree.tag](tree)
-            return SuccessResponse()
+            return SuccessResponse(None)
 
 
         def failure(failure):
@@ -222,19 +226,39 @@ class SimpleStorageService(object):
     #
 
     def putObjectData(self, bucket, key, data, contentType = "binary/octet-stream", headers = {}, public = False):
+
+        def success(response):
+            if len(response) > 0:
+                tree = ElementTree.fromstring(response)
+                if RESPONSE_OBJECTS.has_key(tree.tag):
+                    return RESPONSE_OBJECTS[tree.tag](tree)
+            return SuccessResponse(None)
+
+        def failure(failure):
+            if int(failure.value.status) in self.S3_IGNORE_ERRORS:
+                return Response(None)
+            elif int(failure.value.status) in self.S3_ACCEPTABLE_ERRORS:
+                return ErrorResponse(ElementTree.fromstring(failure.value.response))
+            else:
+                return failure
+
         hash = base64.encodestring(md5.new(data).digest()).strip()
+        
         generatedHeaders = { 'Content-Length': str(len(data)), 'Content-Type': contentType, 'Content-MD5': hash }
+        
         amzHeaders = {}
         if public:
             amzHeaders['x-amz-acl'] = 'public-read'
+        
         authHeaders = self._getAuthorizationHeaders('PUT', hash, contentType, amzHeaders, "/" + bucket + "/" + key)
+        
         allHeaders = headers
         allHeaders.update(amzHeaders)
         allHeaders.update(generatedHeaders)
         allHeaders.update(authHeaders)
+        
         return client.getPage("%s://%s/%s/%s" % (self.S3_PROTOCOL, self.S3_ENDPOINT, bucket, key), method = 'PUT',
-           headers = allHeaders, postdata = data)
-        pass
+           headers = allHeaders, postdata = data).addCallbacks(success, failure)
 
     def getObject(self, bucket, key):
         pass
@@ -249,7 +273,11 @@ class SimpleStorageService(object):
     
     def _getAuthorizationHeaders(self, method, contentHash, contentType, headers, resource):
         date = strftime("%a, %d %b %Y %H:%M:%S +0000", gmtime())
-        data = "%s\n%s\n%s\n%s\n%s%s" % (method, contentHash, contentType, date, self._canonalizeAmzHeaders(headers), resource)
+        amzHeaders = self._canonalizeAmzHeaders(headers)
+        if len(amzHeaders):
+            data = "%s\n%s\n%s\n%s\n%s\n%s" % (method, contentHash, contentType, date, amzHeaders, resource)
+        else:
+            data = "%s\n%s\n%s\n%s\n%s%s" % (method, contentHash, contentType, date, amzHeaders, resource)            
         authorization = "AWS %s:%s" % (self.key, base64.encodestring(hmac.new(self.secret, data, sha).digest()).strip())
         return { 'Authorization': authorization, 'Date': date }
 
