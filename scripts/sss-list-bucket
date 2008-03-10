@@ -1,0 +1,31 @@
+#!/usr/bin/env python2.5
+
+import os, sys, anydbm, marshal
+
+from twisted.python import log
+from twisted.internet import reactor
+from twisted.web import client
+from twisted.internet import defer, task
+
+from polarrose.amazon.sss import SimpleStorageService
+
+if __name__ == "__main__":
+
+    from twisted.internet import reactor
+
+    def printResult(response):
+        if response.success:
+            for item in response.items:
+                print "%9d %s %s %s" % (item.size, item.etag, item.lastModified, item.key)
+        else:
+            print "Error: %s - %s" % (response.code, response.message)            
+        reactor.stop()
+
+    def printError(failure):
+        print "failure: " + str(failure)
+        reactor.stop()
+
+    service = SimpleStorageService(key = os.environ.get("AWS_KEY"), secret = os.environ.get("AWS_SECRET"))
+    service.listBucket(sys.argv[1]).addCallback(printResult).addErrback(printError)
+    reactor.run()
+    
