@@ -21,139 +21,6 @@ from xml.etree import ElementTree
 
 __all__ = [ 'SimpleDatabaseService' ]
 
-class Item(object):
-    def __init__(self, name, attributes):
-        self.name = name
-        self.attributes = attributes
-
-class ErrorResponse(object):
-    def __init__(self, tree):
-        self.requestId = tree.findtext('RequestID')
-        self.boxUsage = decimal.Decimal(0) # XXX Figure out how to calculate this
-        self.success = False
-        self.errors = {}
-        for e in tree.findall('Errors/Error'):
-            code = e.findtext('Code')
-            message = e.findtext('Message')
-            self.errors[code] = message
-    def __repr__(self):
-        return '<ErrorResponse requestId: "%s" errors: %s>' % (self.requestId, self.errors)
-
-class BaseResponse(object):
-    def __init__(self, tree):
-        self.success = True
-        self.requestId = tree.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}ResponseMetadata/{http://sdb.amazonaws.com/doc/2007-11-07/}RequestId')
-        self.boxUsage = decimal.Decimal(tree.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}ResponseMetadata/{http://sdb.amazonaws.com/doc/2007-11-07/}BoxUsage'))
-        
-class CreateDomainResponse(BaseResponse):
-    def __init__(self, tree):
-        BaseResponse.__init__(self, tree)
-    def __repr__(self):
-        return '<CreateDomainResponse requestId: "%s">' % (self.requestId)
-
-class DeleteDomainResponse(BaseResponse):
-    def __init__(self, tree):
-        BaseResponse.__init__(self, tree)
-    def __repr__(self):
-        return '<DeleteDomainResponse requestId: "%s">' % (self.requestId)
-
-class ListDomainsResponse(BaseResponse):
-    def __init__(self, tree):
-        BaseResponse.__init__(self, tree)
-        self.domains = []
-        r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}ListDomainsResult")
-        for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}DomainName"):
-            self.domains.append(e.text)
-        self.nextToken = r.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken")
-    def __repr__(self):
-        return '<ListDomainsResponse requestId: "%s" domains: %s>' % (self.requestId, self.domains)
-
-class PutAttributesResponse(BaseResponse):
-    def __init__(self, tree):
-        BaseResponse.__init__(self, tree)
-    def __repr__(self):
-        return '<PutAttributesResponse requestId: "%s">' % (self.requestId)
-
-class DeleteAttributesResponse(BaseResponse):
-    def __init__(self, tree):
-        BaseResponse.__init__(self, tree)
-    def __repr__(self):
-        return '<DeleteAttributesResponse requestId: "%s">' % (self.requestId)
-
-class GetAttributesResponse(BaseResponse):
-    def __init__(self, tree):
-        BaseResponse.__init__(self, tree)
-        self.attributes = {}
-        r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}GetAttributesResult")        
-        for e in r.findall('{http://sdb.amazonaws.com/doc/2007-11-07/}Attribute'):
-            name = e.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}Name')
-            value = e.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}Value')
-            if self.attributes.has_key(str(name)):
-                if type(self.attributes[str(name)]) != list:
-                    self.attributes[str(name)] = [ self.attributes[str(name)]  ]
-                self.attributes[str(name)].append(value)
-            else:
-                self.attributes[str(name)] = value
-    def __repr__(self):
-        return '<GetAttributesResponse requestId: "%s" attributes: %s>' % (self.requestId, self.attributes)
-
-class QueryWithAttributesResponse(BaseResponse):
-    def __init__(self, tree):
-        BaseResponse.__init__(self, tree)
-        self.items = {}
-        r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}QueryWithAttributesResult")
-        for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}Item"):
-            name = e.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Name")
-            attrs = {}
-            for attr in e.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}Attribute"):
-                k = attr.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Name")
-                v = attr.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Value")
-                if attrs.has_key(k):
-                    prev = attrs[k]
-                    if type(prev) == list:
-                        attrs[k].append(v)
-                    else:
-                        attrs[k] = [prev, v]
-                else:
-                    attrs[k] = v
-            self.items[name] = attrs
-        self.nextToken = r.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
-    def __repr__(self):
-        return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
-
-class QueryResponse(BaseResponse):
-    def __init__(self, tree):
-        BaseResponse.__init__(self, tree)
-        self.items = []
-        r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResult")
-        for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}ItemName"):
-            self.items.append(e.text)
-        self.nextToken = r.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
-    def __repr__(self):
-        return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
-
-class FetchResponse(object):
-    def __init__(self, queryResponse):
-        self.success = True
-        self.requestId = queryResponse.requestId
-        self.boxUsage = queryResponse.boxUsage
-        self.nextToken = queryResponse.nextToken
-        self.items = {}
-    def __repr__(self):
-        return '<FetchResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
-
-RESPONSE_OBJECTS = {
-    '{http://sdb.amazonaws.com/doc/2007-11-07/}CreateDomainResponse': CreateDomainResponse,
-    '{http://sdb.amazonaws.com/doc/2007-11-07/}DeleteDomainResponse': DeleteDomainResponse,
-    '{http://sdb.amazonaws.com/doc/2007-11-07/}ListDomainsResponse': ListDomainsResponse,
-    '{http://sdb.amazonaws.com/doc/2007-11-07/}PutAttributesResponse': PutAttributesResponse,
-    '{http://sdb.amazonaws.com/doc/2007-11-07/}DeleteAttributesResponse': DeleteAttributesResponse,
-    '{http://sdb.amazonaws.com/doc/2007-11-07/}GetAttributesResponse': GetAttributesResponse,
-    '{http://sdb.amazonaws.com/doc/2007-11-07/}QueryWithAttributesResponse': QueryWithAttributesResponse,
-    '{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResponse': QueryResponse,
-    'Response': ErrorResponse
-}
-
 class SimpleDatabaseService(object):
 
     SDB_API_VERSION = "2007-11-07"
@@ -162,6 +29,18 @@ class SimpleDatabaseService(object):
     SDB_ACCEPTABLE_ERRORS = [400]
 
     totalBoxUsage = decimal.Decimal(0)
+
+    RESPONSE_OBJECTS = {
+        '{http://sdb.amazonaws.com/doc/2007-11-07/}CreateDomainResponse': CreateDomainResponse,
+        '{http://sdb.amazonaws.com/doc/2007-11-07/}DeleteDomainResponse': DeleteDomainResponse,
+        '{http://sdb.amazonaws.com/doc/2007-11-07/}ListDomainsResponse': ListDomainsResponse,
+        '{http://sdb.amazonaws.com/doc/2007-11-07/}PutAttributesResponse': PutAttributesResponse,
+        '{http://sdb.amazonaws.com/doc/2007-11-07/}DeleteAttributesResponse': DeleteAttributesResponse,
+        '{http://sdb.amazonaws.com/doc/2007-11-07/}GetAttributesResponse': GetAttributesResponse,
+        '{http://sdb.amazonaws.com/doc/2007-11-07/}QueryWithAttributesResponse': QueryWithAttributesResponse,
+        '{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResponse': QueryResponse,
+        'Response': ErrorResponse
+    }
 
     def __init__(self, key = None, secret = None, debug = False, process=None):
         self.key = key
@@ -253,7 +132,7 @@ class SimpleDatabaseService(object):
         response = RESPONSE_OBJECTS[tree.tag](tree)
         self.totalBoxUsage += response.boxUsage
         return response
-    
+
     def _commonErrback(self, failure):
         if self.debug:
             self.logger.debug(str(failure))
@@ -303,7 +182,7 @@ class SimpleDatabaseService(object):
                 for i in v:
                     parameters["Attribute.%d.Name" % n] = str(k)
                     parameters["Attribute.%d.Value" % n] = str(i)
-                    n = n + 1                    
+                    n = n + 1
             else:
                 parameters["Attribute.%d.Name" % n] = str(k)
                 parameters["Attribute.%d.Value" % n] = str(v)
@@ -314,7 +193,7 @@ class SimpleDatabaseService(object):
         if type(attributes) in (list,tuple):
             return self._deletedAttributesToParametersList(attributes)
         elif type(attributes) == dict:
-            return self._deletedAttributesToParametersDictionary(attributes)            
+            return self._deletedAttributesToParametersDictionary(attributes)
         else:
             return {"Attribute.Name": str(attributes)}
 
@@ -325,7 +204,7 @@ class SimpleDatabaseService(object):
             parameters["Attribute.%d.Name" % n] = str(v)
             n = n + 1
         return parameters
-    
+
     def _deletedAttributesToParametersDictionary(self, attributes):
         parameters = {}
         n = 1
@@ -334,14 +213,135 @@ class SimpleDatabaseService(object):
                 for i in v:
                     parameters["Attribute.%d.Name" % n] = str(k)
                     parameters["Attribute.%d.Value" % n] = str(i)
-                    n = n + 1                    
+                    n = n + 1
             else:
                 parameters["Attribute.%d.Name" % n] = str(k)
                 if v:
                     parameters["Attribute.%d.Value" % n] = str(v)
                 n = n + 1
         return parameters
-    
+
+    class Item(object):
+        def __init__(self, name, attributes):
+            self.name = name
+            self.attributes = attributes
+
+    class ErrorResponse(object):
+        def __init__(self, tree):
+            self.requestId = tree.findtext('RequestID')
+            self.boxUsage = decimal.Decimal(0) # XXX Figure out how to calculate this
+            self.success = False
+            self.errors = {}
+            for e in tree.findall('Errors/Error'):
+                code = e.findtext('Code')
+                message = e.findtext('Message')
+                self.errors[code] = message
+        def __repr__(self):
+            return '<ErrorResponse requestId: "%s" errors: %s>' % (self.requestId, self.errors)
+
+    class BaseResponse(object):
+        def __init__(self, tree):
+            self.success = True
+            self.requestId = tree.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}ResponseMetadata/{http://sdb.amazonaws.com/doc/2007-11-07/}RequestId')
+            self.boxUsage = decimal.Decimal(tree.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}ResponseMetadata/{http://sdb.amazonaws.com/doc/2007-11-07/}BoxUsage'))
+
+    class CreateDomainResponse(BaseResponse):
+        def __init__(self, tree):
+            BaseResponse.__init__(self, tree)
+        def __repr__(self):
+            return '<CreateDomainResponse requestId: "%s">' % (self.requestId)
+
+    class DeleteDomainResponse(BaseResponse):
+        def __init__(self, tree):
+            BaseResponse.__init__(self, tree)
+        def __repr__(self):
+            return '<DeleteDomainResponse requestId: "%s">' % (self.requestId)
+
+    class ListDomainsResponse(BaseResponse):
+        def __init__(self, tree):
+            BaseResponse.__init__(self, tree)
+            self.domains = []
+            r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}ListDomainsResult")
+            for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}DomainName"):
+                self.domains.append(e.text)
+            self.nextToken = r.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken")
+        def __repr__(self):
+            return '<ListDomainsResponse requestId: "%s" domains: %s>' % (self.requestId, self.domains)
+
+    class PutAttributesResponse(BaseResponse):
+        def __init__(self, tree):
+            BaseResponse.__init__(self, tree)
+        def __repr__(self):
+            return '<PutAttributesResponse requestId: "%s">' % (self.requestId)
+
+    class DeleteAttributesResponse(BaseResponse):
+        def __init__(self, tree):
+            BaseResponse.__init__(self, tree)
+        def __repr__(self):
+            return '<DeleteAttributesResponse requestId: "%s">' % (self.requestId)
+
+    class GetAttributesResponse(BaseResponse):
+        def __init__(self, tree):
+            BaseResponse.__init__(self, tree)
+            self.attributes = {}
+            r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}GetAttributesResult")
+            for e in r.findall('{http://sdb.amazonaws.com/doc/2007-11-07/}Attribute'):
+                name = e.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}Name')
+                value = e.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}Value')
+                if self.attributes.has_key(str(name)):
+                    if type(self.attributes[str(name)]) != list:
+                        self.attributes[str(name)] = [ self.attributes[str(name)]  ]
+                    self.attributes[str(name)].append(value)
+                else:
+                    self.attributes[str(name)] = value
+        def __repr__(self):
+            return '<GetAttributesResponse requestId: "%s" attributes: %s>' % (self.requestId, self.attributes)
+
+    class QueryWithAttributesResponse(BaseResponse):
+        def __init__(self, tree):
+            BaseResponse.__init__(self, tree)
+            self.items = {}
+            r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}QueryWithAttributesResult")
+            for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}Item"):
+                name = e.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Name")
+                attrs = {}
+                for attr in e.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}Attribute"):
+                    k = attr.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Name")
+                    v = attr.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Value")
+                    if attrs.has_key(k):
+                        prev = attrs[k]
+                        if type(prev) == list:
+                            attrs[k].append(v)
+                        else:
+                            attrs[k] = [prev, v]
+                    else:
+                        attrs[k] = v
+                self.items[name] = attrs
+            self.nextToken = r.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
+        def __repr__(self):
+            return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
+
+    class QueryResponse(BaseResponse):
+        def __init__(self, tree):
+            BaseResponse.__init__(self, tree)
+            self.items = []
+            r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResult")
+            for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}ItemName"):
+                self.items.append(e.text)
+            self.nextToken = r.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
+        def __repr__(self):
+            return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
+
+    class FetchResponse(object):
+        def __init__(self, queryResponse):
+            self.success = True
+            self.requestId = queryResponse.requestId
+            self.boxUsage = queryResponse.boxUsage
+            self.nextToken = queryResponse.nextToken
+            self.items = {}
+        def __repr__(self):
+            return '<FetchResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
+
 class SimpleDB(SimpleDatabaseService):
     def __init__(self, key = None, secret = None, debug = False):
         SimpleDatabaseService.__init__(self, key, secret, debug, process=self._make_request)
