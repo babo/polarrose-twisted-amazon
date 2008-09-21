@@ -305,7 +305,7 @@ class SimpleDatabaseService(object):
         parameters = {}
         n = 1
         for k,v in attributes.items():
-            if replace and k in replace:
+            if replace and ((type(replace) == bool and k) or k in replace):
                 parameters["Attribute.%d.Replace" % n] = "true"
             if type(v) in (list, tuple):
                 for i in v:
