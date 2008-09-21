@@ -321,8 +321,10 @@ class SimpleDatabaseService(object):
     def _deletedAttributesToParameters(self, attributes):
         if type(attributes) in (list,tuple):
             return self._deletedAttributesToParametersList(attributes)
-        else:
+        elif type(attributes) == dict:
             return self._deletedAttributesToParametersDictionary(attributes)            
+        else:
+            return {"Attribute.Name": str(attributes)}
 
     def _deletedAttributesToParametersList(self, attributes):
         parameters = {}
