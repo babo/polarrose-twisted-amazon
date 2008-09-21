@@ -103,6 +103,30 @@ class GetAttributesResponse(BaseResponse):
     def __repr__(self):
         return '<GetAttributesResponse requestId: "%s" attributes: %s>' % (self.requestId, self.attributes)
 
+class QueryWithAttributesResponse(BaseResponse):
+    def __init__(self, tree):
+        BaseResponse.__init__(self, tree)
+        self.items = {}
+        r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}QueryWithAttributesResult")
+        for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}Item"):
+            name = e.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Name")
+            attrs = {}
+            for attr in e.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}Attribute"):
+                k = attr.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Name")
+                v = attr.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Value")
+                if attrs.has_key(k):
+                    prev = attrs[k]
+                    if type(prev) == list:
+                        attrs[k].append(v)
+                    else:
+                        attrs[k] = [prev, v]
+                else:
+                    attrs[k] = v
+            self.items[name] = attrs
+        self.nextToken = r.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
+    def __repr__(self):
+        return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
+
 class QueryResponse(BaseResponse):
     def __init__(self, tree):
         BaseResponse.__init__(self, tree)
@@ -131,6 +155,7 @@ RESPONSE_OBJECTS = {
     '{http://sdb.amazonaws.com/doc/2007-11-07/}PutAttributesResponse': PutAttributesResponse,
     '{http://sdb.amazonaws.com/doc/2007-11-07/}DeleteAttributesResponse': DeleteAttributesResponse,
     '{http://sdb.amazonaws.com/doc/2007-11-07/}GetAttributesResponse': GetAttributesResponse,
+    '{http://sdb.amazonaws.com/doc/2007-11-07/}QueryWithAttributesResponse': QueryWithAttributesResponse,
     '{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResponse': QueryResponse,
     'Response': ErrorResponse
 }
@@ -202,6 +227,13 @@ class SimpleDatabaseService(object):
     def query(self, domainName, queryExpression = None, maxNumberOfItems = 100, nextToken = None):
         url = self._createRequestUrl("Query", DomainName=domainName, QueryExpression=queryExpression,
             NextToken=nextToken, MaxNumberOfItems=maxNumberOfItems)
+        if self.debug:
+            self.logger.debug(url)
+        return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
+
+    def queryWithAttributes(self, domainName, attributeName=None, queryExpression = None, maxNumberOfItems = 100, nextToken = None):
+        url = self._createRequestUrl("QueryWithAttributes", DomainName=domainName, QueryExpression=queryExpression,
+            AttributeName=attributeName, MaxNumberOfItems=maxNumberOfItems, NextToken=nextToken)
         if self.debug:
             self.logger.debug(url)
         return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
