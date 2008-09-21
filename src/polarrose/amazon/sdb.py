@@ -70,6 +70,7 @@ class ListDomainsResponse(BaseResponse):
         r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}ListDomainsResult")
         for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}DomainName"):
             self.domains.append(e.text)
+        self.nextToken = r.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken")
     def __repr__(self):
         return '<ListDomainsResponse statusCode: "%s" requestId: "%s" domains: %s>' % (self.statusCode, self.requestId, self.domains)
 
@@ -109,7 +110,7 @@ class QueryResponse(BaseResponse):
         r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResult")
         for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}ItemName"):
             self.items.append(e.text)
-        self.nextToken = tree.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResult/{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
+        self.nextToken = r.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
     def __repr__(self):
         return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
 
