@@ -19,12 +19,6 @@ from datetime import datetime
 import decimal, hmac, logging, sha, base64, urllib
 from xml.etree import ElementTree
 
-from twisted.application import internet, service
-from twisted.internet import defer, task
-from twisted.web import client
-from twisted.web.error import Error
-from twisted.python import log
-
 __all__ = [ 'SimpleDatabaseService' ]
 
 class Item(object):
@@ -55,13 +49,13 @@ class CreateDomainResponse(BaseResponse):
     def __init__(self, tree):
         BaseResponse.__init__(self, tree)
     def __repr__(self):
-        return '<CreateDomainResponse statusCode: "%s" requestId: "%s">' % (self.statusCode, self.requestId)
+        return '<CreateDomainResponse requestId: "%s">' % (self.requestId)
 
 class DeleteDomainResponse(BaseResponse):
     def __init__(self, tree):
         BaseResponse.__init__(self, tree)
     def __repr__(self):
-        return '<DeleteDomainResponse statusCode: "%s" requestId: "%s">' % (self.statusCode, self.requestId)
+        return '<DeleteDomainResponse requestId: "%s">' % (self.requestId)
 
 class ListDomainsResponse(BaseResponse):
     def __init__(self, tree):
@@ -72,19 +66,19 @@ class ListDomainsResponse(BaseResponse):
             self.domains.append(e.text)
         self.nextToken = r.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken")
     def __repr__(self):
-        return '<ListDomainsResponse statusCode: "%s" requestId: "%s" domains: %s>' % (self.statusCode, self.requestId, self.domains)
+        return '<ListDomainsResponse requestId: "%s" domains: %s>' % (self.requestId, self.domains)
 
 class PutAttributesResponse(BaseResponse):
     def __init__(self, tree):
         BaseResponse.__init__(self, tree)
     def __repr__(self):
-        return '<PutAttributesResponse statusCode: "%s" requestId: "%s">' % (self.statusCode, self.requestId)
+        return '<PutAttributesResponse requestId: "%s">' % (self.requestId)
 
 class DeleteAttributesResponse(BaseResponse):
     def __init__(self, tree):
         BaseResponse.__init__(self, tree)
     def __repr__(self):
-        return '<DeleteAttributesResponse statusCode: "%s" requestId: "%s">' % (self.statusCode, self.requestId)
+        return '<DeleteAttributesResponse requestId: "%s">' % (self.requestId)
 
 class GetAttributesResponse(BaseResponse):
     def __init__(self, tree):
@@ -163,38 +157,36 @@ RESPONSE_OBJECTS = {
 class SimpleDatabaseService(object):
 
     SDB_API_VERSION = "2007-11-07"
-    SDB_SERVICE_ENDPOINT = "http://sdb.amazonaws.com"
+    SDB_SERVICE_ENDPOINT = "http://sdb.amazonaws.com/"
 
     SDB_ACCEPTABLE_ERRORS = [400]
 
     totalBoxUsage = decimal.Decimal(0)
 
-    def __init__(self, key = None, secret = None, debug = False):
+    def __init__(self, key = None, secret = None, debug = False, process=None):
         self.key = key
         self.secret = secret
         self.debug = debug
+        self.process = process or (lambda x: x)
         self.logger = logging.getLogger('polarrose.amazon.SimpleDatabaseService')
-    #
 
     def createDomain(self, domainName):
         url = self._createRequestUrl("CreateDomain", DomainName=domainName)
         if self.debug:
             self.logger.debug(url)
-        return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
+        return self.process(url)
 
     def deleteDomain(self, domainName):
         url = self._createRequestUrl("DeleteDomain", DomainName=domainName)
         if self.debug:
             self.logger.debug(url)
-        return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
+        return self.process(url)
 
     def listDomains(self, maxNumberOfDomains = 100, nextToken = None):
         url = self._createRequestUrl("ListDomains", MaxNumberOfDomains=maxNumberOfDomains, NextToken=nextToken)
         if self.debug:
             self.logger.debug(url)
-        return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
-
-    #
+        return self.process(url)
 
     def putAttributes(self, domainName, itemName, attributes, replace = None):
         url = self._createRequestUrl("PutAttributes",
@@ -202,7 +194,7 @@ class SimpleDatabaseService(object):
             DomainName=domainName, ItemName=itemName)
         if self.debug:
             self.logger.debug(url)
-        return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
+        return self.process(url)
 
     def deleteAttributes(self, domainName, itemName, attributes = {}):
         url = self._createRequestUrl("DeleteAttributes",
@@ -210,7 +202,7 @@ class SimpleDatabaseService(object):
             DomainName= domainName, ItemName=itemName)
         if self.debug:
             self.logger.debug(url)
-        return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
+        return self.process(url)
 
     def getAttributes(self, domainName, itemName, attributes = []):
         if type(attributes) in (list, tuple):
@@ -220,52 +212,22 @@ class SimpleDatabaseService(object):
         url = self._createRequestUrl("GetAttributes", attributeNames, DomainName=domainName, ItemName=itemName)
         if self.debug:
             self.logger.debug(url)
-        return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)        
-    
-    #
+        return self.process(url)
 
     def query(self, domainName, queryExpression = None, maxNumberOfItems = 100, nextToken = None):
         url = self._createRequestUrl("Query", DomainName=domainName, QueryExpression=queryExpression,
             NextToken=nextToken, MaxNumberOfItems=maxNumberOfItems)
         if self.debug:
             self.logger.debug(url)
-        return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
+        return self.process(url)
 
     def queryWithAttributes(self, domainName, attributeName=None, queryExpression = None, maxNumberOfItems = 100, nextToken = None):
         url = self._createRequestUrl("QueryWithAttributes", DomainName=domainName, QueryExpression=queryExpression,
             AttributeName=attributeName, MaxNumberOfItems=maxNumberOfItems, NextToken=nextToken)
         if self.debug:
             self.logger.debug(url)
-        return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
+        return self.process(url)
 
-    #
-
-    def _fetchCollectorCallback(self, responses, itemNames, fetchResponse):
-        for itemName, item in zip(itemNames, responses):
-            if item[0]:
-                fetchResponse.items[itemName] = Item(itemName, item[1])
-            else:
-                fetchResponse.items[itemName] = item[1]
-        return fetchResponse
-
-    def _fetchQueryCallback(self, response, domainName, attributes):
-        if not response.success:
-            return response
-        deferred = defer.DeferredList([self.getAttributes(domainName, item, attributes) for item in response.items],
-            consumeErrors = True)
-        return deferred.addCallback(self._fetchCollectorCallback, response.items, FetchResponse(response))
-
-    def fetch(self, domainName, expression = "", attributes = [], maxNumberOfItems = 100, nextToken = None):
-        deferred = self.query(domainName, expression, maxNumberOfItems, nextToken)
-        return deferred.addCallback(self._fetchQueryCallback, domainName, attributes)
-
-    #
-
-#    def _executeParallelTasks(self, iterable, count, callable, *args, **named):
-#        coop = task.Cooperator()
-#        work = (callable(elem, *args, **named) for elem in iterable)
-#        return defer.DeferredList([coop.coiterate(work) for i in xrange(count)])
-#
 #    def _handleFetchItem(self, response, responses):
 #        responses.append(response)
 #        return response
@@ -283,8 +245,6 @@ class SimpleDatabaseService(object):
 #    def parallelFetch(self, domainName, expression, attributes = [], maxNumberOfItems = 100, count = 2):
 #        deferred = self.query(domainName, expression, maxNumberOfItems)
 #        return deferred.addCallback(self._handleQuerySuccess, count, domainName, [])
-
-    #
 
     def _commonCallback(self, response):
         if self.debug:
@@ -382,3 +342,90 @@ class SimpleDatabaseService(object):
                 n = n + 1
         return parameters
     
+class SimpleDB(SimpleDatabaseService):
+    def __init__(self, key = None, secret = None, debug = False):
+        SimpleDatabaseService.__init__(self, key, secret, debug, process=self._make_request)
+
+    def _make_request(self, location, method='GET'):
+        from urlparse import urlparse
+
+        while True:
+            (scheme, host, path, params, query, fragment) = urlparse(location)
+            connection = self.get_connection(scheme, host)
+
+            if query: path += "?" + query
+            if fragment: path += '#' + fragment
+
+            connection.request(method,path)
+            resp = connection.getresponse()
+            if resp.status < 300 or resp.status >= 400:
+                return self._commonCallback(resp.read())
+
+            # handle redirect
+            location = resp.getheader('location')
+            if not location:
+                return self._commonErrback(resp.read())
+            # (close connection)
+            # retry with redirect
+
+    def get_connection(self, scheme, host):
+        import httplib
+        if scheme == "http": return httplib.HTTPSConnection(host)
+        elif scheme == "https": return httplib.HTTPConnection(host)
+        else: raise invalidURL(scheme + '://' + location)
+
+class TwistedDB(SimpleDatabaseService):
+    from twisted.application import internet, service
+    from twisted.internet import defer, task
+    from twisted.web import client
+    from twisted.web.error import Error
+    from twisted.python import log
+
+    def __init__(self, key = None, secret = None, debug = False):
+        SimpleDatabaseService.__init__(self, key, secret, debug, process=self._make_request)
+
+    def _make_request(self, location, method='GET'):
+        from twisted.web import client
+        return client.getPage(location).addCallback(self._commonCallback).addErrback(self._commonErrback)
+
+    def _fetchCollectorCallback(self, responses, itemNames, fetchResponse):
+        for itemName, item in zip(itemNames, responses):
+            if item[0]:
+                fetchResponse.items[itemName] = Item(itemName, item[1])
+            else:
+                fetchResponse.items[itemName] = item[1]
+        return fetchResponse
+
+    def _fetchQueryCallback(self, response, domainName, attributes):
+        if not response.success:
+            return response
+        deferred = defer.DeferredList([self.getAttributes(domainName, item, attributes) for item in response.items],
+            consumeErrors = True)
+        return deferred.addCallback(self._fetchCollectorCallback, response.items, FetchResponse(response))
+
+    def fetch(self, domainName, expression = "", attributes = [], maxNumberOfItems = 100, nextToken = None):
+        deferred = self.query(domainName, expression, maxNumberOfItems, nextToken)
+        return deferred.addCallback(self._fetchQueryCallback, domainName, attributes)
+
+#    def _executeParallelTasks(self, iterable, count, callable, *args, **named):
+#        coop = task.Cooperator()
+#        work = (callable(elem, *args, **named) for elem in iterable)
+#        return defer.DeferredList([coop.coiterate(work) for i in xrange(count)])
+#
+#    def _handleFetchItem(self, response, responses):
+#        responses.append(response)
+#        return response
+#
+#    def _fetchItem(self, (itemName), domainName, responses):
+#        return self.getAttributes(domainName, itemName).addCallback(self._handleFetchItem, responses)
+#
+#    def _handleExecuteParallelFetchItems(self, response, responses):
+#        return responses
+#
+#    def _handleQuerySuccess(self, response, count, domainName, responses):
+#        deferred = self._executeParallelTasks(response.items, count, self._fetchItem, domainName, responses)
+#        return deferred.addCallback(self._handleExecuteParallelFetchItems, responses)
+#
+#    def parallelFetch(self, domainName, expression, attributes = [], maxNumberOfItems = 100, count = 2):
+#        deferred = self.query(domainName, expression, maxNumberOfItems)
+#        return deferred.addCallback(self._handleQuerySuccess, count, domainName, [])
