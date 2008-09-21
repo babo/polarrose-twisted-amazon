@@ -152,24 +152,19 @@ class SimpleDatabaseService(object):
     #
 
     def createDomain(self, domainName):
-        url = self._createRequestUrl("CreateDomain", {'DomainName': domainName})
+        url = self._createRequestUrl("CreateDomain", DomainName=domainName)
         if self.debug:
             self.logger.debug(url)
         return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
 
     def deleteDomain(self, domainName):
-        url = self._createRequestUrl("DeleteDomain", {'DomainName': domainName})
+        url = self._createRequestUrl("DeleteDomain", DomainName=domainName)
         if self.debug:
             self.logger.debug(url)
         return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
 
     def listDomains(self, maxNumberOfDomains = 100, nextToken = None):
-        parameters = {}
-        if maxNumberOfDomains:
-            parameters['MaxNumberOfDomains'] = maxNumberOfDomains
-        if nextToken:
-            parameters['NextToken'] = nextToken
-        url = self._createRequestUrl("ListDomains", parameters)
+        url = self._createRequestUrl("ListDomains", MaxNumberOfDomains=maxNumberOfDomains, NextToken=nextToken)
         if self.debug:
             self.logger.debug(url)
         return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
@@ -177,22 +172,27 @@ class SimpleDatabaseService(object):
     #
 
     def putAttributes(self, domainName, itemName, attributes, replace = None):
-        url = self._createRequestUrl("PutAttributes", {'DomainName': domainName, 'ItemName': itemName },
-           self._attributesToParameters(attributes, replace))
+        url = self._createRequestUrl("PutAttributes",
+            self._attributesToParameters(attributes, replace),
+            DomainName=domainName, ItemName=itemName)
         if self.debug:
             self.logger.debug(url)
         return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
 
     def deleteAttributes(self, domainName, itemName, attributes = {}):
-        url = self._createRequestUrl("DeleteAttributes", {'DomainName': domainName, 'ItemName': itemName},
-           self._deletedAttributesToParameters(attributes))
+        url = self._createRequestUrl("DeleteAttributes",
+            self._deletedAttributesToParameters(attributes),
+            DomainName= domainName, ItemName=itemName)
         if self.debug:
             self.logger.debug(url)
         return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
 
     def getAttributes(self, domainName, itemName, attributes = []):
+        if type(attributes) in (list, tuple):
         attributeNames = dict([("AttributeName.%s" % (n+1), v) for n,v in enumerate(attributes)])
-        url = self._createRequestUrl("GetAttributes", {'DomainName': domainName, 'ItemName': itemName}, attributeNames)
+        else:
+            attributeNames = {'AttributeName': str(attributes)}
+        url = self._createRequestUrl("GetAttributes", attributeNames, DomainName=domainName, ItemName=itemName)
         if self.debug:
             self.logger.debug(url)
         return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)        
@@ -200,11 +200,8 @@ class SimpleDatabaseService(object):
     #
 
     def query(self, domainName, queryExpression = None, maxNumberOfItems = 100, nextToken = None):
-        parameters = {'DomainName': domainName, 'QueryExpression': queryExpression,
-                      'MaxNumberOfItems': maxNumberOfItems}
-        if nextToken:
-            parameters['NextToken'] = nextToken
-        url = self._createRequestUrl("Query", parameters)
+        url = self._createRequestUrl("Query", DomainName=domainName, QueryExpression=queryExpression,
+            NextToken=nextToken, MaxNumberOfItems=maxNumberOfItems)
         if self.debug:
             self.logger.debug(url)
         return client.getPage(url).addCallback(self._commonCallback).addErrback(self._commonErrback)
@@ -276,20 +273,33 @@ class SimpleDatabaseService(object):
 
     def _generateSignature(self, params):
         signature = ""
-        for key in sorted(params.keys(), key=str.lower):
-            signature = signature + key + str(params[key])
+        for (key, value) in sorted(params, key=lambda (k,v): (str.lower(k),v)):
+            signature = signature + key + str(value)
         return base64.encodestring(hmac.new(self.secret, signature, sha).digest()).strip()
 
-    def _createRequestUrl(self, action, *params):
-        parameters = {}
-        for p in params: parameters.update(p)
-        parameters['Action'] = action
-        parameters['Version'] = self.SDB_API_VERSION
-        parameters['AWSAccessKeyId'] = self.key
-        parameters['SignatureVersion'] = "1"
-        parameters['Timestamp'] = datetime.utcnow().isoformat()[0:19]+"+00:00"
-        parameters['Signature'] = self._generateSignature(parameters)
-        return "%s?%s" % (self.SDB_SERVICE_ENDPOINT, urllib.urlencode(parameters))
+    def _createRequestUrl(self, action, *optParams, **namedParams):
+        parameters = []
+        for op in optParams:
+            parameters += op.items()
+        parameters += namedParams.items()
+
+        filtered=[]
+        for (k,v) in parameters:
+            if v and type(v) in (list, tuple):
+                i=1
+                for vs in v:
+                    if vs:
+                        filtered.append(('%s.%d' % (k, i), vs))
+                        i = i + 1
+            elif v:
+                filtered.append((k,v))
+        filtered.append(('Action', action))
+        filtered.append(('Version', self.SDB_API_VERSION))
+        filtered.append(('AWSAccessKeyId', self.key))
+        filtered.append(('SignatureVersion', "1"))
+        filtered.append(('Timestamp', datetime.utcnow().isoformat()[0:19]+"+00:00"))
+        filtered.append(('Signature', self._generateSignature(filtered)))
+        return "%s?%s" % (self.SDB_SERVICE_ENDPOINT, urllib.urlencode(filtered))
 
     def _attributesToParameters(self, attributes, replace = None):
         parameters = {}
