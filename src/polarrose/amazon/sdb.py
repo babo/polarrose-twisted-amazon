@@ -25,20 +25,21 @@ class SimpleDatabaseService(object):
 
     SDB_API_VERSION = "2007-11-07"
     SDB_SERVICE_ENDPOINT = "http://sdb.amazonaws.com/"
+    SDB_XPATH='{%sdoc/%s/}' % (SDB_SERVICE_ENDPOINT, SDB_API_VERSION)
 
     SDB_ACCEPTABLE_ERRORS = [400]
 
     totalBoxUsage = decimal.Decimal(0)
 
     RESPONSE_OBJECTS = {
-        '{http://sdb.amazonaws.com/doc/2007-11-07/}CreateDomainResponse': CreateDomainResponse,
-        '{http://sdb.amazonaws.com/doc/2007-11-07/}DeleteDomainResponse': DeleteDomainResponse,
-        '{http://sdb.amazonaws.com/doc/2007-11-07/}ListDomainsResponse': ListDomainsResponse,
-        '{http://sdb.amazonaws.com/doc/2007-11-07/}PutAttributesResponse': PutAttributesResponse,
-        '{http://sdb.amazonaws.com/doc/2007-11-07/}DeleteAttributesResponse': DeleteAttributesResponse,
-        '{http://sdb.amazonaws.com/doc/2007-11-07/}GetAttributesResponse': GetAttributesResponse,
-        '{http://sdb.amazonaws.com/doc/2007-11-07/}QueryWithAttributesResponse': QueryWithAttributesResponse,
-        '{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResponse': QueryResponse,
+        SDB_XPATH+'CreateDomainResponse': CreateDomainResponse,
+        SDB_XPATH+'DeleteDomainResponse': DeleteDomainResponse,
+        SDB_XPATH+'ListDomainsResponse': ListDomainsResponse,
+        SDB_XPATH+'PutAttributesResponse': PutAttributesResponse,
+        SDB_XPATH+'DeleteAttributesResponse': DeleteAttributesResponse,
+        SDB_XPATH+'GetAttributesResponse': GetAttributesResponse,
+        SDB_XPATH+'QueryWithAttributesResponse': QueryWithAttributesResponse,
+        SDB_XPATH+'QueryResponse': QueryResponse,
         'Response': ErrorResponse
     }
 
@@ -242,8 +243,8 @@ class SimpleDatabaseService(object):
     class BaseResponse(object):
         def __init__(self, tree):
             self.success = True
-            self.requestId = tree.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}ResponseMetadata/{http://sdb.amazonaws.com/doc/2007-11-07/}RequestId')
-            self.boxUsage = decimal.Decimal(tree.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}ResponseMetadata/{http://sdb.amazonaws.com/doc/2007-11-07/}BoxUsage'))
+            self.requestId = tree.findtext(SDB_XPATH+'ResponseMetadata/'+SDB_PATH+'RequestId')
+            self.boxUsage = decimal.Decimal(tree.findtext(SDB_XPATH+'ResponseMetadata/'+SDB_PATH+'BoxUsage'))
 
     class CreateDomainResponse(BaseResponse):
         def __init__(self, tree):
@@ -261,10 +262,10 @@ class SimpleDatabaseService(object):
         def __init__(self, tree):
             BaseResponse.__init__(self, tree)
             self.domains = []
-            r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}ListDomainsResult")
-            for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}DomainName"):
+            r = tree.find(SDB_XPATH+'ListDomainsResult')
+            for e in r.findall(SDB_XPATH+'DomainName'):
                 self.domains.append(e.text)
-            self.nextToken = r.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken")
+            self.nextToken = r.findtext(SDB_XPATH+'NextToken')
         def __repr__(self):
             return '<ListDomainsResponse requestId: "%s" domains: %s>' % (self.requestId, self.domains)
 
@@ -284,10 +285,10 @@ class SimpleDatabaseService(object):
         def __init__(self, tree):
             BaseResponse.__init__(self, tree)
             self.attributes = {}
-            r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}GetAttributesResult")
-            for e in r.findall('{http://sdb.amazonaws.com/doc/2007-11-07/}Attribute'):
-                name = e.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}Name')
-                value = e.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}Value')
+            r = tree.find(SDB_XPATH+'GetAttributesResult')
+            for e in r.findall(SDB_XPATH+'Attribute'):
+                name = e.findtext(SDB_XPATH+'Name')
+                value = e.findtext(SDB_XPATH+'Value')
                 if self.attributes.has_key(str(name)):
                     if type(self.attributes[str(name)]) != list:
                         self.attributes[str(name)] = [ self.attributes[str(name)]  ]
@@ -301,13 +302,13 @@ class SimpleDatabaseService(object):
         def __init__(self, tree):
             BaseResponse.__init__(self, tree)
             self.items = {}
-            r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}QueryWithAttributesResult")
-            for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}Item"):
-                name = e.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Name")
+            r = tree.find(SDB_XPATH+'QueryWithAttributesResult')
+            for e in r.findall(SDB_XPATH+'Item'):
+                name = e.findtext(SDB_XPATH+'Name')
                 attrs = {}
-                for attr in e.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}Attribute"):
-                    k = attr.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Name")
-                    v = attr.findtext("{http://sdb.amazonaws.com/doc/2007-11-07/}Value")
+                for attr in e.findall(SDB_XPATH+'Attribute'):
+                    k = attr.findtext(SDB_XPATH+'Name')
+                    v = attr.findtext(SDB_XPATH+'Value')
                     if attrs.has_key(k):
                         prev = attrs[k]
                         if type(prev) == list:
@@ -317,7 +318,7 @@ class SimpleDatabaseService(object):
                     else:
                         attrs[k] = v
                 self.items[name] = attrs
-            self.nextToken = r.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
+            self.nextToken = r.findtext(SDB_XPATH+'NextToken')
         def __repr__(self):
             return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
 
@@ -325,10 +326,10 @@ class SimpleDatabaseService(object):
         def __init__(self, tree):
             BaseResponse.__init__(self, tree)
             self.items = []
-            r = tree.find("{http://sdb.amazonaws.com/doc/2007-11-07/}QueryResult")
-            for e in r.findall("{http://sdb.amazonaws.com/doc/2007-11-07/}ItemName"):
+            r = tree.find(SDB_XPATH+'QueryResult')
+            for e in r.findall(SDB_XPATH+'ItemName'):
                 self.items.append(e.text)
-            self.nextToken = r.findtext('{http://sdb.amazonaws.com/doc/2007-11-07/}NextToken')
+            self.nextToken = r.findtext(SDB_XPATH+'NextToken')
         def __repr__(self):
             return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
 
