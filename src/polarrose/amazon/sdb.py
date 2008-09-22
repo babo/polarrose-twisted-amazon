@@ -31,18 +31,6 @@ class SimpleDatabaseService(object):
 
     totalBoxUsage = decimal.Decimal(0)
 
-    RESPONSE_OBJECTS = {
-        SDB_XPATH+'CreateDomainResponse': CreateDomainResponse,
-        SDB_XPATH+'DeleteDomainResponse': DeleteDomainResponse,
-        SDB_XPATH+'ListDomainsResponse': ListDomainsResponse,
-        SDB_XPATH+'PutAttributesResponse': PutAttributesResponse,
-        SDB_XPATH+'DeleteAttributesResponse': DeleteAttributesResponse,
-        SDB_XPATH+'GetAttributesResponse': GetAttributesResponse,
-        SDB_XPATH+'QueryWithAttributesResponse': QueryWithAttributesResponse,
-        SDB_XPATH+'QueryResponse': QueryResponse,
-        'Response': ErrorResponse
-    }
-
     def __init__(self, key = None, secret = None, debug = False, process=None):
         self.key = key
         self.secret = secret
@@ -86,7 +74,7 @@ class SimpleDatabaseService(object):
 
     def getAttributes(self, domainName, itemName, attributes = []):
         if type(attributes) in (list, tuple):
-        attributeNames = dict([("AttributeName.%s" % (n+1), v) for n,v in enumerate(attributes)])
+            attributeNames = dict([("AttributeName.%s" % (n+1), v) for n,v in enumerate(attributes)])
         else:
             attributeNames = {'AttributeName': str(attributes)}
         url = self._createRequestUrl("GetAttributes", attributeNames, DomainName=domainName, ItemName=itemName)
@@ -342,6 +330,18 @@ class SimpleDatabaseService(object):
             self.items = {}
         def __repr__(self):
             return '<FetchResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
+
+    RESPONSE_OBJECTS = {
+        SDB_XPATH+'CreateDomainResponse': CreateDomainResponse,
+        SDB_XPATH+'DeleteDomainResponse': DeleteDomainResponse,
+        SDB_XPATH+'ListDomainsResponse': ListDomainsResponse,
+        SDB_XPATH+'PutAttributesResponse': PutAttributesResponse,
+        SDB_XPATH+'DeleteAttributesResponse': DeleteAttributesResponse,
+        SDB_XPATH+'GetAttributesResponse': GetAttributesResponse,
+        SDB_XPATH+'QueryWithAttributesResponse': QueryWithAttributesResponse,
+        SDB_XPATH+'QueryResponse': QueryResponse,
+        'Response': ErrorResponse
+    }
 
 class SimpleDB(SimpleDatabaseService):
     def __init__(self, key = None, secret = None, debug = False):
