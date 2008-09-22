@@ -21,15 +21,148 @@ from xml.etree import ElementTree
 
 __all__ = [ 'SimpleDatabaseService' ]
 
-class SimpleDatabaseService(object):
+SDB_API_VERSION = "2007-11-07"
+SDB_SERVICE_ENDPOINT = "http://sdb.amazonaws.com/"
+SDB_XPATH='{%sdoc/%s/}' % (SDB_SERVICE_ENDPOINT, SDB_API_VERSION)
 
-    SDB_API_VERSION = "2007-11-07"
-    SDB_SERVICE_ENDPOINT = "http://sdb.amazonaws.com/"
-    SDB_XPATH='{%sdoc/%s/}' % (SDB_SERVICE_ENDPOINT, SDB_API_VERSION)
+class Item(object):
+    def __init__(self, name, attributes):
+        self.name = name
+        self.attributes = attributes
+
+class ErrorResponse(object):
+    def __init__(self, tree):
+        self.requestId = tree.findtext('RequestID')
+        self.boxUsage = decimal.Decimal(0) # XXX Figure out how to calculate this
+        self.success = False
+        self.errors = {}
+        for e in tree.findall('Errors/Error'):
+            code = e.findtext('Code')
+            message = e.findtext('Message')
+            self.errors[code] = message
+    def __repr__(self):
+        return '<ErrorResponse requestId: "%s" errors: %s>' % (self.requestId, self.errors)
+
+class BaseResponse(object):
+    def __init__(self, tree):
+        self.success = True
+        self.requestId = tree.findtext(SDB_XPATH+'ResponseMetadata/'+SDB_XPATH+'RequestId')
+        self.boxUsage = decimal.Decimal(tree.findtext(SDB_XPATH+'ResponseMetadata/'+SDB_XPATH+'BoxUsage'))
+
+class CreateDomainResponse(BaseResponse):
+    def __init__(self, tree):
+        BaseResponse.__init__(self, tree)
+    def __repr__(self):
+        return '<CreateDomainResponse requestId: "%s">' % (self.requestId)
+
+class DeleteDomainResponse(BaseResponse):
+    def __init__(self, tree):
+        BaseResponse.__init__(self, tree)
+    def __repr__(self):
+        return '<DeleteDomainResponse requestId: "%s">' % (self.requestId)
+
+class ListDomainsResponse(BaseResponse):
+    def __init__(self, tree):
+        BaseResponse.__init__(self, tree)
+        self.domains = []
+        r = tree.find(SDB_XPATH+'ListDomainsResult')
+        for e in r.findall(SDB_XPATH+'DomainName'):
+            self.domains.append(e.text)
+        self.nextToken = r.findtext(SDB_XPATH+'NextToken')
+    def __repr__(self):
+        return '<ListDomainsResponse requestId: "%s" domains: %s>' % (self.requestId, self.domains)
+
+class PutAttributesResponse(BaseResponse):
+    def __init__(self, tree):
+        BaseResponse.__init__(self, tree)
+    def __repr__(self):
+        return '<PutAttributesResponse requestId: "%s">' % (self.requestId)
+
+class DeleteAttributesResponse(BaseResponse):
+    def __init__(self, tree):
+        BaseResponse.__init__(self, tree)
+    def __repr__(self):
+        return '<DeleteAttributesResponse requestId: "%s">' % (self.requestId)
+
+class GetAttributesResponse(BaseResponse):
+    def __init__(self, tree):
+        BaseResponse.__init__(self, tree)
+        self.attributes = {}
+        r = tree.find(SDB_XPATH+'GetAttributesResult')
+        for e in r.findall(SDB_XPATH+'Attribute'):
+            name = e.findtext(SDB_XPATH+'Name')
+            value = e.findtext(SDB_XPATH+'Value')
+            if self.attributes.has_key(str(name)):
+                if type(self.attributes[str(name)]) != list:
+                    self.attributes[str(name)] = [ self.attributes[str(name)]  ]
+                self.attributes[str(name)].append(value)
+            else:
+                self.attributes[str(name)] = value
+    def __repr__(self):
+        return '<GetAttributesResponse requestId: "%s" attributes: %s>' % (self.requestId, self.attributes)
+
+class QueryWithAttributesResponse(BaseResponse):
+    def __init__(self, tree):
+        BaseResponse.__init__(self, tree)
+        self.items = {}
+        r = tree.find(SDB_XPATH+'QueryWithAttributesResult')
+        for e in r.findall(SDB_XPATH+'Item'):
+            name = e.findtext(SDB_XPATH+'Name')
+            attrs = {}
+            for attr in e.findall(SDB_XPATH+'Attribute'):
+                k = attr.findtext(SDB_XPATH+'Name')
+                v = attr.findtext(SDB_XPATH+'Value')
+                if attrs.has_key(k):
+                    prev = attrs[k]
+                    if type(prev) == list:
+                        attrs[k].append(v)
+                    else:
+                        attrs[k] = [prev, v]
+                else:
+                    attrs[k] = v
+            self.items[name] = attrs
+        self.nextToken = r.findtext(SDB_XPATH+'NextToken')
+    def __repr__(self):
+        return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
+
+class QueryResponse(BaseResponse):
+    def __init__(self, tree):
+        BaseResponse.__init__(self, tree)
+        self.items = []
+        r = tree.find(SDB_XPATH+'QueryResult')
+        for e in r.findall(SDB_XPATH+'ItemName'):
+            self.items.append(e.text)
+        self.nextToken = r.findtext(SDB_XPATH+'NextToken')
+    def __repr__(self):
+        return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
+
+class FetchResponse(object):
+    def __init__(self, queryResponse):
+        self.success = True
+        self.requestId = queryResponse.requestId
+        self.boxUsage = queryResponse.boxUsage
+        self.nextToken = queryResponse.nextToken
+        self.items = {}
+    def __repr__(self):
+        return '<FetchResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
+
+class SimpleDatabaseService(object):
 
     SDB_ACCEPTABLE_ERRORS = [400]
 
     totalBoxUsage = decimal.Decimal(0)
+
+    RESPONSE_OBJECTS = {
+        SDB_XPATH+'CreateDomainResponse': CreateDomainResponse,
+        SDB_XPATH+'DeleteDomainResponse': DeleteDomainResponse,
+        SDB_XPATH+'ListDomainsResponse': ListDomainsResponse,
+        SDB_XPATH+'PutAttributesResponse': PutAttributesResponse,
+        SDB_XPATH+'DeleteAttributesResponse': DeleteAttributesResponse,
+        SDB_XPATH+'GetAttributesResponse': GetAttributesResponse,
+        SDB_XPATH+'QueryWithAttributesResponse': QueryWithAttributesResponse,
+        SDB_XPATH+'QueryResponse': QueryResponse,
+        'Response': ErrorResponse
+    }
 
     def __init__(self, key = None, secret = None, debug = False, process=None):
         self.key = key
@@ -118,7 +251,7 @@ class SimpleDatabaseService(object):
         if self.debug:
             self.logger.debug(response)
         tree = ElementTree.fromstring(response)
-        response = RESPONSE_OBJECTS[tree.tag](tree)
+        response = self.RESPONSE_OBJECTS[tree.tag](tree)
         self.totalBoxUsage += response.boxUsage
         return response
 
@@ -127,7 +260,7 @@ class SimpleDatabaseService(object):
             self.logger.debug(str(failure))
         if int(failure.value.status) in self.SDB_ACCEPTABLE_ERRORS:
             tree = ElementTree.fromstring(failure.value.response)
-            return RESPONSE_OBJECTS[tree.tag](tree)
+            return self.RESPONSE_OBJECTS[tree.tag](tree)
         else:
             return failure
 
@@ -154,12 +287,12 @@ class SimpleDatabaseService(object):
             elif v:
                 filtered.append((k,v))
         filtered.append(('Action', action))
-        filtered.append(('Version', self.SDB_API_VERSION))
+        filtered.append(('Version', SDB_API_VERSION))
         filtered.append(('AWSAccessKeyId', self.key))
         filtered.append(('SignatureVersion', "1"))
         filtered.append(('Timestamp', datetime.utcnow().isoformat()[0:19]+"+00:00"))
         filtered.append(('Signature', self._generateSignature(filtered)))
-        return "%s?%s" % (self.SDB_SERVICE_ENDPOINT, urllib.urlencode(filtered))
+        return "%s?%s" % (SDB_SERVICE_ENDPOINT, urllib.urlencode(filtered))
 
     def _attributesToParameters(self, attributes, replace = None):
         parameters = {}
@@ -209,139 +342,6 @@ class SimpleDatabaseService(object):
                     parameters["Attribute.%d.Value" % n] = str(v)
                 n = n + 1
         return parameters
-
-    class Item(object):
-        def __init__(self, name, attributes):
-            self.name = name
-            self.attributes = attributes
-
-    class ErrorResponse(object):
-        def __init__(self, tree):
-            self.requestId = tree.findtext('RequestID')
-            self.boxUsage = decimal.Decimal(0) # XXX Figure out how to calculate this
-            self.success = False
-            self.errors = {}
-            for e in tree.findall('Errors/Error'):
-                code = e.findtext('Code')
-                message = e.findtext('Message')
-                self.errors[code] = message
-        def __repr__(self):
-            return '<ErrorResponse requestId: "%s" errors: %s>' % (self.requestId, self.errors)
-
-    class BaseResponse(object):
-        def __init__(self, tree):
-            self.success = True
-            self.requestId = tree.findtext(SDB_XPATH+'ResponseMetadata/'+SDB_PATH+'RequestId')
-            self.boxUsage = decimal.Decimal(tree.findtext(SDB_XPATH+'ResponseMetadata/'+SDB_PATH+'BoxUsage'))
-
-    class CreateDomainResponse(BaseResponse):
-        def __init__(self, tree):
-            BaseResponse.__init__(self, tree)
-        def __repr__(self):
-            return '<CreateDomainResponse requestId: "%s">' % (self.requestId)
-
-    class DeleteDomainResponse(BaseResponse):
-        def __init__(self, tree):
-            BaseResponse.__init__(self, tree)
-        def __repr__(self):
-            return '<DeleteDomainResponse requestId: "%s">' % (self.requestId)
-
-    class ListDomainsResponse(BaseResponse):
-        def __init__(self, tree):
-            BaseResponse.__init__(self, tree)
-            self.domains = []
-            r = tree.find(SDB_XPATH+'ListDomainsResult')
-            for e in r.findall(SDB_XPATH+'DomainName'):
-                self.domains.append(e.text)
-            self.nextToken = r.findtext(SDB_XPATH+'NextToken')
-        def __repr__(self):
-            return '<ListDomainsResponse requestId: "%s" domains: %s>' % (self.requestId, self.domains)
-
-    class PutAttributesResponse(BaseResponse):
-        def __init__(self, tree):
-            BaseResponse.__init__(self, tree)
-        def __repr__(self):
-            return '<PutAttributesResponse requestId: "%s">' % (self.requestId)
-
-    class DeleteAttributesResponse(BaseResponse):
-        def __init__(self, tree):
-            BaseResponse.__init__(self, tree)
-        def __repr__(self):
-            return '<DeleteAttributesResponse requestId: "%s">' % (self.requestId)
-
-    class GetAttributesResponse(BaseResponse):
-        def __init__(self, tree):
-            BaseResponse.__init__(self, tree)
-            self.attributes = {}
-            r = tree.find(SDB_XPATH+'GetAttributesResult')
-            for e in r.findall(SDB_XPATH+'Attribute'):
-                name = e.findtext(SDB_XPATH+'Name')
-                value = e.findtext(SDB_XPATH+'Value')
-                if self.attributes.has_key(str(name)):
-                    if type(self.attributes[str(name)]) != list:
-                        self.attributes[str(name)] = [ self.attributes[str(name)]  ]
-                    self.attributes[str(name)].append(value)
-                else:
-                    self.attributes[str(name)] = value
-        def __repr__(self):
-            return '<GetAttributesResponse requestId: "%s" attributes: %s>' % (self.requestId, self.attributes)
-
-    class QueryWithAttributesResponse(BaseResponse):
-        def __init__(self, tree):
-            BaseResponse.__init__(self, tree)
-            self.items = {}
-            r = tree.find(SDB_XPATH+'QueryWithAttributesResult')
-            for e in r.findall(SDB_XPATH+'Item'):
-                name = e.findtext(SDB_XPATH+'Name')
-                attrs = {}
-                for attr in e.findall(SDB_XPATH+'Attribute'):
-                    k = attr.findtext(SDB_XPATH+'Name')
-                    v = attr.findtext(SDB_XPATH+'Value')
-                    if attrs.has_key(k):
-                        prev = attrs[k]
-                        if type(prev) == list:
-                            attrs[k].append(v)
-                        else:
-                            attrs[k] = [prev, v]
-                    else:
-                        attrs[k] = v
-                self.items[name] = attrs
-            self.nextToken = r.findtext(SDB_XPATH+'NextToken')
-        def __repr__(self):
-            return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
-
-    class QueryResponse(BaseResponse):
-        def __init__(self, tree):
-            BaseResponse.__init__(self, tree)
-            self.items = []
-            r = tree.find(SDB_XPATH+'QueryResult')
-            for e in r.findall(SDB_XPATH+'ItemName'):
-                self.items.append(e.text)
-            self.nextToken = r.findtext(SDB_XPATH+'NextToken')
-        def __repr__(self):
-            return '<QueryResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
-
-    class FetchResponse(object):
-        def __init__(self, queryResponse):
-            self.success = True
-            self.requestId = queryResponse.requestId
-            self.boxUsage = queryResponse.boxUsage
-            self.nextToken = queryResponse.nextToken
-            self.items = {}
-        def __repr__(self):
-            return '<FetchResponse requestId: "%s" items: %s nextToken: %s>' % (self.requestId, self.items, self.nextToken)
-
-    RESPONSE_OBJECTS = {
-        SDB_XPATH+'CreateDomainResponse': CreateDomainResponse,
-        SDB_XPATH+'DeleteDomainResponse': DeleteDomainResponse,
-        SDB_XPATH+'ListDomainsResponse': ListDomainsResponse,
-        SDB_XPATH+'PutAttributesResponse': PutAttributesResponse,
-        SDB_XPATH+'DeleteAttributesResponse': DeleteAttributesResponse,
-        SDB_XPATH+'GetAttributesResponse': GetAttributesResponse,
-        SDB_XPATH+'QueryWithAttributesResponse': QueryWithAttributesResponse,
-        SDB_XPATH+'QueryResponse': QueryResponse,
-        'Response': ErrorResponse
-    }
 
 class SimpleDB(SimpleDatabaseService):
     def __init__(self, key = None, secret = None, debug = False):
